@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIZN V2 3D Box Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: sans-serif; }
+        #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+    <div id="info">
+        <strong>SIZN V2 - 3D Box Preview</strong><br>
+        Geminiの2D座標から3D立体を自動生成<br>
+        <span id="dimensions">計算中...</span>
+    </div>
+
+    <script>
+        // --- ① Geminiから届いたと仮定する2D座標データ（テスト用サンプル） ---
+        // ※実際はFlutterFlowからこの変数にデータを流し込みます
+        const geminiJson = {
+            "target_name": "Sample Bottle",
+            "image1_front_location": { "ymin": 200, "xmin": 400, "ymax": 800, "xmax": 600 },
+            "image2_side_location": { "ymin": 200, "xmin": 450, "ymax": 800, "xmax": 550 }
+        };
+
+        // --- ② 2Dの四角形から「3Dのサイズ（縦・横・奥行き）」を計算するロジック ---
+        const front = geminiJson.image1_front_location;
+        const side = geminiJson.image2_side_location;
+
+        // 0-1000の座標系から相対的な比率サイズを計算
+        const width = (front.xmax - front.xmin) / 1000;   // 正面の横幅
+        const height = (front.ymax - front.ymin) / 1000;  // 正面の高さ
+        const depth = (side.xmax - side.xmin) / 1000;    // 側面の横幅（＝物体の奥行き）
+
+        // 画面に計算された比率を表示
+        document.getElementById('dimensions').innerHTML = `
+            対象: ${geminiJson.target_name}<br>
+            W(横幅): ${width.toFixed(2)} / H(高さ): ${height.toFixed(2)} / D(奥行): ${depth.toFixed(2)}
+        `;
+
+        // --- ③ Three.js による3D空間のセットアップ ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- ④ 計算したサイズで3Dの箱（立方体）を作成 ---
+        const geometry = new THREE.BoxGeometry(width, height, depth);
+        
+        // 中身が透けて見える、ARっぽい緑色のワイヤーフレーム素材
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0x00ff00, 
+            wireframe: true,
+            transparent: true,
+            opacity: 0.8
+        });
+        const box = new THREE.Mesh(geometry, material);
+        scene.add(box);
+
+        // グリッド（床面）を置いて立体感を出す
+        const gridHelper = new THREE.GridHelper(2, 20, 0x444444, 0x222222);
+        gridHelper.position.y = -(height / 2); // 箱の底面に合わせる
+        scene.add(gridHelper);
+
+        // カメラの位置調整
+        camera.position.z = 1.5;
+        camera.position.y = 0.5;
+        camera.lookAt(0, 0, 0);
+
+        // --- ⑤ アニメーションループ（箱をくるくる回転させて立体的に見せる） ---
+        function animate() {
+            requestRequest = requestAnimationFrame(animate);
+            
+            // 3Dの箱をゆっくり回転させて全方位から形を確認できるようにする
+            box.rotation.y += 0.01;
+            gridHelper.rotation.y += 0.01;
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // 画面サイズが変更された時のレスポンシブ対応
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
