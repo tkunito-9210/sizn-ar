@@ -50,20 +50,19 @@
         document.body.appendChild(renderer.domElement);
 
 // --- 🌟 計算した数値をFlutterFlowへ送り返す「秘密の電波」 ---
-// 念のため、少し描画が落ち着いた1秒後（1000ms）に自動送信します
 setTimeout(() => {
     const resultData = {
-        "calculated_width": width,
-        "calculated_height": height,
-        "calculated_depth": depth
+        "calculated_width": Math.round(width * 1000),
+        "calculated_height": Math.round(height * 1000),
+        "calculated_depth": Math.round(depth * 1000)
     };
     
-    // FlutterFlowのWebViewへメッセージを送信する呪文
-    if (window.FFPlatformChannel && window.FFPlatformChannel.postMessage) {
-        window.FFPlatformChannel.postMessage(JSON.stringify(resultData));
-        console.log("FlutterFlowへデータを送信しました:", resultData);
+    // 💡 チャンネル名を専用の「ARWebViewChannel」に変更！
+    if (window.ARWebViewChannel && window.ARWebViewChannel.postMessage) {
+        window.ARWebViewChannel.postMessage(JSON.stringify(resultData));
+        console.log("ARWebView宛てにデータを送信しました:", resultData);
     } else {
-        console.log("FlutterFlowの受信環境が見つかりません（ブラウザテスト中など）");
+        console.log("ARWebViewの受信環境が見つかりません");
     }
 }, 1000);
 
