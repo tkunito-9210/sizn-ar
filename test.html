@@ -89,9 +89,10 @@ setTimeout(() => {
         camera.position.y = 0.5;
         camera.lookAt(0, 0, 0);
 
-        // --- ⑤ アニメーションループ（箱をくるくる回転させて立体的に見せる） ---
+// --- ⑤ アニメーションループ（箱をくるくる回転させて立体的に見せる） ---
         function animate() {
-            requestRequest = requestAnimationFrame(animate);
+            // 💡 requestRequest = を削除し、正しくループを呼び出すように修正！
+            requestAnimationFrame(animate);
             
             // 3Dの箱をゆっくり回転させて全方位から形を確認できるようにする
             box.rotation.y += 0.01;
