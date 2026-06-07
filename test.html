@@ -7,7 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: sans-serif; }
-        #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-size: 12px; }
+        #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-size: 12px; z-index: 10; }
     </style>
 </head>
 <body>
@@ -15,21 +15,28 @@
     <div id="info">
         <strong>SIZN V2 - 3D Box Preview</strong><br>
         Geminiの2D座標から3D立体を自動生成<br>
-        <span id="dimensions">計算中...</span>
+        <span id="dimensions">データ受信待ち...</span>
     </div>
 
     <script>
-        // --- ① Geminiから届いたと仮定する2D座標データ（テスト用サンプル） ---
-        // ※実際はFlutterFlowからこの変数にデータを流し込みます
-        const geminiJson = {
-            "target_name": "Sample Bottle",
-            "image1_front_location": { "ymin": 200, "xmin": 400, "ymax": 800, "xmax": 600 },
-            "image2_side_location": { "ymin": 200, "xmin": 450, "ymax": 800, "xmax": 550 }
-        };
+let geminiJson = null; 
+let scene, camera, renderer, box, gridHelper;
 
-        // --- ② 2Dの四角形から「3Dのサイズ（縦・横・奥行き）」を計算するロジック ---
+// 🌟 FlutterFlow（Dart）から本物のデータが届いたときに呼び出される関数
+function startCalculation(newData) {
+    // 届いた本物のデータを代入
+    geminiJson = newData;
+    console.log("FlutterFlowから本物のデータを受信しました:", geminiJson);
+    
+    try {
+        // --- ① 2Dの四角形から「3Dのサイズ（縦・横・奥行き）」を計算するロジック ---
+        // 💡 【大移動】データが届いたこの安全なタイミングで初めて座標を読み込みます
         const front = geminiJson.image1_front_location;
         const side = geminiJson.image2_side_location;
+
+        if (!front || !side) {
+            throw new Error("フロントまたはサイドの座標データが不足しています");
+        }
 
         // 0-1000の座標系から相対的な比率サイズを計算
         const width = (front.xmax - front.xmin) / 1000;   // 正面の横幅
@@ -38,76 +45,93 @@
 
         // 画面に計算された比率を表示
         document.getElementById('dimensions').innerHTML = `
-            対象: ${geminiJson.target_name}<br>
+            対象: ${geminiJson.target_name || "未特定"}<br>
             W(横幅): ${width.toFixed(2)} / H(高さ): ${height.toFixed(2)} / D(奥行): ${depth.toFixed(2)}
         `;
 
-        // --- ③ Three.js による3D空間のセットアップ ---
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+        // --- ② Three.js による3D空間のセットアップ ---
+        initThreeJs(width, height, depth);
 
-// --- 🌟 計算した数値をFlutterFlowへ送り返す「秘密の電波」 ---
-setTimeout(() => {
-    const resultData = {
-        "calculated_width": Math.round(width * 1000),
-        "calculated_height": Math.round(height * 1000),
-        "calculated_depth": Math.round(depth * 1000)
-    };
-    
-    // 💡 チャンネル名を専用の「ARWebViewChannel」に変更！
-    if (window.ARWebViewChannel && window.ARWebViewChannel.postMessage) {
-        window.ARWebViewChannel.postMessage(JSON.stringify(resultData));
-        console.log("ARWebView宛てにデータを送信しました:", resultData);
-    } else {
-        console.log("ARWebViewの受信環境が見つかりません");
-    }
-}, 1000);
-
-        // --- ④ 計算したサイズで3Dの箱（立方体）を作成 ---
-        const geometry = new THREE.BoxGeometry(width, height, depth);
-        
-        // 中身が透けて見える、ARっぽい緑色のワイヤーフレーム素材
-        const material = new THREE.MeshBasicMaterial({ 
-            color: 0x00ff00, 
-            wireframe: true,
-            transparent: true,
-            opacity: 0.8
-        });
-        const box = new THREE.Mesh(geometry, material);
-        scene.add(box);
-
-        // グリッド（床面）を置いて立体感を出す
-        const gridHelper = new THREE.GridHelper(2, 20, 0x444444, 0x222222);
-        gridHelper.position.y = -(height / 2); // 箱の底面に合わせる
-        scene.add(gridHelper);
-
-        // カメラの位置調整
-        camera.position.z = 1.5;
-        camera.position.y = 0.5;
-        camera.lookAt(0, 0, 0);
-
-// --- ⑤ アニメーションループ（箱をくるくる回転させて立体的に見せる） ---
-        function animate() {
-            // 💡 requestRequest = を削除し、正しくループを呼び出すように修正！
-            requestAnimationFrame(animate);
+        // --- ③ 計算した数値をFlutterFlowへ送り返す（1秒後に自動送信＆画面遷移トリガー） ---
+        setTimeout(() => {
+            const resultData = {
+                "calculated_width": Math.round(width * 1000),
+                "calculated_height": Math.round(height * 1000),
+                "calculated_depth": Math.round(depth * 1000)
+            };
             
-            // 3Dの箱をゆっくり回転させて全方位から形を確認できるようにする
-            box.rotation.y += 0.01;
-            gridHelper.rotation.y += 0.01;
+            if (window.ARWebViewChannel && window.ARWebViewChannel.postMessage) {
+                window.ARWebViewChannel.postMessage(JSON.stringify(resultData));
+                console.log("ARWebView宛てにデータを送信しました:", resultData);
+            } else {
+                console.log("ARWebViewの受信環境が見つかりません（window.ARWebViewChannel が未定義）");
+            }
+        }, 1000);
 
-            renderer.render(scene, camera);
-        }
-        animate();
+    } catch (error) {
+        console.error("計算または初期化中にエラーが発生しました:", error);
+        document.getElementById('dimensions').innerHTML = `<span style="color:red;">エラー: ${error.message}</span>`;
+    }
+}
 
-        // 画面サイズが変更された時のレスポンシブ対応
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+// --- ④ Three.jsの初期化・メッシュ作成用関数 ---
+function initThreeJs(width, height, depth) {
+    // 既存の要素があれば削除（二重描画防止）
+    if (renderer) {
+        document.body.removeChild(renderer.domElement);
+    }
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // 計算したサイズで3Dの箱（立方体）を作成
+    const geometry = new THREE.BoxGeometry(width, height, depth);
+    
+    // 中身が透けて見える、ARっぽい緑色のワイヤーフレーム素材
+    const material = new THREE.MeshBasicMaterial({ 
+        color: 0x00ff00, 
+        wireframe: true,
+        transparent: true,
+        opacity: 0.8
+    });
+    box = new THREE.Mesh(geometry, material);
+    scene.add(box);
+
+    // グリッド（床面）を置いて立体感を出す
+    gridHelper = new THREE.GridHelper(2, 20, 0x444444, 0x222222);
+    gridHelper.position.y = -(height / 2); // 箱の底面に合わせる
+    scene.add(gridHelper);
+
+    // カメラの位置調整
+    camera.position.z = 1.5;
+    camera.position.y = 0.5;
+    camera.lookAt(0, 0, 0);
+
+    // アニメーションループ開始
+    animate();
+}
+
+// --- ⑤ アニメーションループ（箱をくるくる回転させる） ---
+function animate() {
+    if (!renderer) return;
+    requestAnimationFrame(animate);
+    
+    if (box) box.rotation.y += 0.01;
+    if (gridHelper) gridHelper.rotation.y += 0.01;
+
+    renderer.render(scene, camera);
+}
+
+// 画面サイズが変更された時のレスポンシブ対応
+window.addEventListener('resize', () => {
+    if (!camera || !renderer) return;
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
     </script>
 </body>
 </html>
