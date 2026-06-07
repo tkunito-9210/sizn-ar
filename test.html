@@ -67,18 +67,18 @@ function startCalculation(data) {
         // Three.js 初期化
         initThreeJs(width, height, depth);
 
-        // 1秒後に数値をFlutterFlowへ送り返す（画面遷移トリガー）
-        setTimeout(() => {
-            const resultData = {
-                "width": Math.round(width * 1000),
-                "height": Math.round(height * 1000),
-                "depth": Math.round(depth * 1000)
-            };
-            
-            if (window.FlutterFlowChannel && window.FlutterFlowChannel.postMessage) {
-    window.FlutterFlowChannel.postMessage(JSON.stringify(resultData));
-}
-        }, 1000);
+// 1秒後に数値をFlutterFlowへ送り返す（画面遷移トリガー）
+setTimeout(() => {
+    const resultData = {
+        "width": Math.round(width * 1000),
+        "height": Math.round(height * 1000),
+        "depth": Math.round(depth * 1000)
+    };
+    
+    if (window.FlutterFlowChannel && window.FlutterFlowChannel.postMessage) {
+        window.FlutterFlowChannel.postMessage(JSON.stringify(resultData));
+    }
+}, 1000);
 
     } catch (error) {
         document.getElementById('dimensions').innerHTML = `<span style="color:red;">エラー: ${error.message}</span>`;
