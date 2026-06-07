@@ -132,6 +132,19 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// 🌟【新設】ページ全体の読み込みが完了したら、FlutterFlowに「準備OK」を通知する
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        if (window.ARWebViewChannel && window.ARWebViewChannel.postMessage) {
+            // FlutterFlow側に「ready」という合図を送る
+            window.ARWebViewChannel.postMessage(JSON.stringify({ "status": "ready" }));
+            console.log("📢 FlutterFlowに準備完了サイン(ready)を送信しました");
+        }
+    }, 500); // 念のため500ミリ秒だけ待ってから確実に送信
+});
+
+
     </script>
 </body>
 </html>
