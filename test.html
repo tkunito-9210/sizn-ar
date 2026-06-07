@@ -3,148 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SIZN V2 3D Box Simulator</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <title>SIZN V2 DEBUG MODE</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: sans-serif; }
-        #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-size: 12px; z-index: 10; }
+        body { background-color: #1a1a1a; color: white; font-family: sans-serif; padding: 20px; }
+        button { background: #00ff00; color: black; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 5px; width: 100%; margin-top: 20px; cursor: pointer; }
+        .box { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 14px; word-break: break-all; }
     </style>
 </head>
 <body>
 
-    <div id="info">
-        <strong>SIZN V2 - 3D Box Preview</strong><br>
-        Geminiの2D座標から3D立体を自動生成<br>
-        <span id="dimensions">データ受信待ち...</span>
+    <h2>🛠️ SIZN V2 デバッグ画面</h2>
+    <div>ステータス: <span id="status" style="color: yellow;">データ受信待ち...</span></div>
+    
+    <button onclick="checkWindowData()">🔥 【手動】window内のデータを確認する</button>
+
+    <div class="box">
+        <strong>【デバッグ情報】</strong><br>
+        <span id="debug-info">アプリ起動完了。サイン送信中...</span>
     </div>
 
     <script>
-let geminiJson = null; 
-let scene, camera, renderer, box, gridHelper;
-
-// 🌟 FlutterFlow（Dart）から本物のデータが届いたときに呼び出される関数
-function startCalculation(newData) {
-    // 届いた本物のデータを代入
-    geminiJson = newData;
-    console.log("FlutterFlowから本物のデータを受信しました:", geminiJson);
-    
-    try {
-        // --- ① 2Dの四角形から「3Dのサイズ（縦・横・奥行き）」を計算するロジック ---
-        // 💡 【大移動】データが届いたこの安全なタイミングで初めて座標を読み込みます
-        const front = geminiJson.image1_front_location;
-        const side = geminiJson.image2_side_location;
-
-        if (!front || !side) {
-            throw new Error("フロントまたはサイドの座標データが不足しています");
-        }
-
-        // 0-1000の座標系から相対的な比率サイズを計算
-        const width = (front.xmax - front.xmin) / 1000;   // 正面の横幅
-        const height = (front.ymax - front.ymin) / 1000;  // 正面の高さ
-        const depth = (side.xmax - side.xmin) / 1000;    // 側面の横幅（＝物体の奥行き）
-
-        // 画面に計算された比率を表示
-        document.getElementById('dimensions').innerHTML = `
-            対象: ${geminiJson.target_name || "未特定"}<br>
-            W(横幅): ${width.toFixed(2)} / H(高さ): ${height.toFixed(2)} / D(奥行): ${depth.toFixed(2)}
-        `;
-
-        // --- ② Three.js による3D空間のセットアップ ---
-        initThreeJs(width, height, depth);
-
-        // --- ③ 計算した数値をFlutterFlowへ送り返す（1秒後に自動送信＆画面遷移トリガー） ---
-        setTimeout(() => {
-            const resultData = {
-                "calculated_width": Math.round(width * 1000),
-                "calculated_height": Math.round(height * 1000),
-                "calculated_depth": Math.round(depth * 1000)
-            };
-            
+        // 🌟 ページが開いた瞬間、FlutterFlowに準備完了を送る
+        window.addEventListener('load', () => {
+            document.getElementById('debug-info').innerText = "loadイベント発火：readyサインを送信します...";
             if (window.ARWebViewChannel && window.ARWebViewChannel.postMessage) {
-                window.ARWebViewChannel.postMessage(JSON.stringify(resultData));
-                console.log("ARWebView宛てにデータを送信しました:", resultData);
+                window.ARWebViewChannel.postMessage(JSON.stringify({ "status": "ready" }));
+                document.getElementById('debug-info').innerText += "\n➔ readyサインを送信しました！";
             } else {
-                console.log("ARWebViewの受信環境が見つかりません（window.ARWebViewChannel が未定義）");
+                document.getElementById('debug-info').innerText += "\n❌ 警告: window.ARWebViewChannel が見つかりません。FlutterFlowのWebViewとして認識されていない可能性があります。";
             }
-        }, 1000);
+        });
 
-    } catch (error) {
-        console.error("計算または初期化中にエラーが発生しました:", error);
-        document.getElementById('dimensions').innerHTML = `<span style="color:red;">エラー: ${error.message}</span>`;
-    }
-}
-
-// --- ④ Three.jsの初期化・メッシュ作成用関数 ---
-function initThreeJs(width, height, depth) {
-    // 既存の要素があれば削除（二重描画防止）
-    if (renderer) {
-        document.body.removeChild(renderer.domElement);
-    }
-
-    scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    // 計算したサイズで3Dの箱（立方体）を作成
-    const geometry = new THREE.BoxGeometry(width, height, depth);
-    
-    // 中身が透けて見える、ARっぽい緑色のワイヤーフレーム素材
-    const material = new THREE.MeshBasicMaterial({ 
-        color: 0x00ff00, 
-        wireframe: true,
-        transparent: true,
-        opacity: 0.8
-    });
-    box = new THREE.Mesh(geometry, material);
-    scene.add(box);
-
-    // グリッド（床面）を置いて立体感を出す
-    gridHelper = new THREE.GridHelper(2, 20, 0x444444, 0x222222);
-    gridHelper.position.y = -(height / 2); // 箱の底面に合わせる
-    scene.add(gridHelper);
-
-    // カメラの位置調整
-    camera.position.z = 1.5;
-    camera.position.y = 0.5;
-    camera.lookAt(0, 0, 0);
-
-    // アニメーションループ開始
-    animate();
-}
-
-// --- ⑤ アニメーションループ（箱をくるくる回転させる） ---
-function animate() {
-    if (!renderer) return;
-    requestAnimationFrame(animate);
-    
-    if (box) box.rotation.y += 0.01;
-    if (gridHelper) gridHelper.rotation.y += 0.01;
-
-    renderer.render(scene, camera);
-}
-
-// 画面サイズが変更された時のレスポンシブ対応
-window.addEventListener('resize', () => {
-    if (!camera || !renderer) return;
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// 🌟【新設】ページ全体の読み込みが完了したら、FlutterFlowに「準備OK」を通知する
-window.addEventListener('load', () => {
-    setTimeout(() => {
-        if (window.ARWebViewChannel && window.ARWebViewChannel.postMessage) {
-            // FlutterFlow側に「ready」という合図を送る
-            window.ARWebViewChannel.postMessage(JSON.stringify({ "status": "ready" }));
-            console.log("📢 FlutterFlowに準備完了サイン(ready)を送信しました");
+        // 🌟 Dart側から呼び出される本番用の関数
+        function startCalculation(newData) {
+            document.getElementById('status').innerText = "🎉 受信成功！";
+            document.getElementById('status').style.color = "#00ff00";
+            document.getElementById('debug-info').innerText = "届いたデータ:\n" + JSON.stringify(newData, null, 2);
         }
-    }, 500); // 念のため500ミリ秒だけ待ってから確実に送信
-});
 
-
+        // 🔥 ボタンを押した時に、強引に中身をチェックするデバッグ関数
+        function checkWindowData() {
+            if (window.geminiJson) {
+                document.getElementById('status').innerText = "🎉 手動確認：window内にデータを発見！";
+                document.getElementById('status').style.color = "#00ff00";
+                document.getElementById('debug-info').innerText = "window.geminiJsonの中身:\n" + JSON.stringify(window.geminiJson, null, 2);
+            } else {
+                alert("❌ まだ window.geminiJson には何も入っていません。Dartからの注入自体がブロックされている可能性が高いです。");
+            }
+        }
     </script>
 </body>
 </html>
